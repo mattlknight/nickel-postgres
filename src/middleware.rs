@@ -3,7 +3,7 @@ use std::result::Result;
 use nickel::{Request, Response, Middleware, Continue, MiddlewareResult};
 use nickel::status::StatusCode;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
-use r2d2::{Config, Pool, PooledConnection, GetTimeout};
+use r2d2::{self, Pool, PooledConnection};
 use typemap::Key;
 use plugin::Extensible;
 
@@ -17,7 +17,11 @@ impl PostgresMiddleware {
     /// The middleware will be setup with no ssl and the r2d2 defaults.
     pub fn new(db_url: &str) -> Result<PostgresMiddleware, Box<Error>> {
         let manager = try!(PostgresConnectionManager::new(db_url, TlsMode::None));
-        let pool = try!(Pool::new(Config::default(), manager));
+        let pool = r2d2::Pool::builder()
+            .max_size(15)
+            .build(manager)
+            .expect("nickel-postgres::middleware  Failed to build r2d2::Pool::builder()");
+        // let pool = try!(&config, manager));
 
         Ok(PostgresMiddleware { pool: pool })
     }
@@ -55,11 +59,11 @@ impl<D> Middleware<D> for PostgresMiddleware {
 /// });
 /// ```
 pub trait PostgresRequestExtensions {
-    fn pg_conn(&self) -> Result<PooledConnection<PostgresConnectionManager>, (StatusCode, GetTimeout)>;
+    fn pg_conn(&self) -> Result<PooledConnection<PostgresConnectionManager>, (StatusCode, r2d2::Error)>;
 }
 
 impl<'a, 'b, D> PostgresRequestExtensions for Request<'a, 'b, D> {
-    fn pg_conn(&self) -> Result<PooledConnection<PostgresConnectionManager>, (StatusCode, GetTimeout)> {
+    fn pg_conn(&self) -> Result<PooledConnection<PostgresConnectionManager>, (StatusCode, r2d2::Error)> {
         self.extensions()
             .get::<PostgresMiddleware>()
             .expect("PostgresMiddleware must be registered before using PostgresRequestExtensions::pg_conn()")
